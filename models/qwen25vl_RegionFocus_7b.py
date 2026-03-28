@@ -262,70 +262,93 @@ def save_debug_image(image, filename_prefix, coords=None, radius=5, color=(255, 
 # Main class
 # ---------------------
 
+import torch
+from transformers import AutoProcessor, AutoModelForVision2Seq
+from qwen_vl_utils import process_vision_info
+
 class Qwen25VLModel():
     def __init__(self, 
-                 base_url="http://localhost:8400/v1",
-                 api_key="empty",
-                 model_name="Qwen/Qwen2.5-VL-7B-Instruct"):
+                 model_name="./qwen25vl"):
         """
-        Initialize the client that calls your remote model.
-        :param base_url: The URL of your inference endpoint
-        :param api_key:  The API key (if any)
-        :param model_name: Model name for remote inference
+        Initialize the local model.
+        :param model_name: Path to local model directory or Hub ID
         """
-        self.client = OpenAI(
-            base_url=base_url,
-            api_key=api_key
-        )
         self.model_name = model_name
         self.regionfocus_coords = []
         self.generation_config = {}
 
+        # Load the model and processor locally
+        self.model = AutoModelForVision2Seq.from_pretrained(
+            self.model_name,
+            torch_dtype=torch.bfloat16,
+            device_map="auto",
+            trust_remote_code=True
+        ).eval()
+        self.processor = AutoProcessor.from_pretrained(
+            self.model_name,
+            trust_remote_code=True
+        )
+
     def load_model(self):
         """
-        In the new endpoint-based version, we do not actually
-        load a model locally. This can be a no-op (or removed).
+        Model is already loaded in __init__
         """
         pass
 
     def set_generation_config(self, **kwargs):
         """
-        If your endpoint supports custom generation parameters
-        (e.g., temperature, max tokens, etc.), you can set them
-        here. Otherwise, this can be unused or extended as needed.
+        Set generation config
         """
         self.generation_config = kwargs
 
     def _call_endpoint(self, messages, temperature=0, top_p=1.0):
         """
-        Helper method to call the OpenAI-compatible API endpoint with robust error handling.
+        Helper method to call the local model inference.
         """
-        max_retries = 2
-        timeout = 10  # seconds
-        
-        for attempt in range(max_retries):
-            try:
-                response = self.client.chat.completions.create(
-                    model=self.model_name,
-                    messages=messages,
-                    temperature=temperature,
-                    top_p=top_p,
-                    timeout=timeout,
-                    max_tokens=1024,
-                    #**self.generation_config
-                )
-                return response.choices[0].message.content
-            except Exception as e:
-                if attempt < max_retries - 1:
-                    # Calculate exponential backoff time (1s, 2s, 4s, etc.)
-                    wait_time = 2 ** attempt
-                    print(f"API call failed (attempt {attempt+1}/{max_retries}): {e}")
-                    print(f"Retrying in {wait_time} seconds...")
-                    import time
-                    time.sleep(wait_time)
-                else:
-                    print(f"Error calling API after {max_retries} attempts: {e}")
-                    return "Error: Unable to get a response from the model after multiple attempts."
+        try:
+            # Prepare inputs
+            text = self.processor.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+            image_inputs, video_inputs = process_vision_info(messages)
+
+            inputs = self.processor(
+                text=[text],
+                images=image_inputs,
+                videos=video_inputs,
+                padding=True,
+                return_tensors="pt"
+            )
+
+            inputs = inputs.to(self.model.device)
+
+            # Generate response
+            generation_kwargs = {
+                "max_new_tokens": 1024,
+                **self.generation_config
+            }
+            if temperature > 0:
+                generation_kwargs["do_sample"] = True
+                generation_kwargs["temperature"] = temperature
+                generation_kwargs["top_p"] = top_p
+            else:
+                generation_kwargs["do_sample"] = False
+
+            with torch.no_grad():
+                generated_ids = self.model.generate(**inputs, **generation_kwargs)
+
+            generated_ids_trimmed = [
+                out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+            ]
+
+            response = self.processor.batch_decode(
+                generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
+            )
+            return response[0]
+
+        except Exception as e:
+            print(f"Error during local model inference: {e}")
+            return f"Error: {str(e)}"
 
     def ground(self, instruction, image):
         """
