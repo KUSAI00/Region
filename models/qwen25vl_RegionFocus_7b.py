@@ -320,10 +320,17 @@ class Qwen25VLModel():
                     if content_item["type"] == "image_url":
                         # Extract base64 and add image type
                         url = content_item["image_url"]["url"]
-                        formatted_msg["content"].append({
+                        image_data = {
                             "type": "image",
                             "image": url
-                        })
+                        }
+                        # Pass through pixel constraints to the Qwen processor
+                        if "min_pixels" in content_item:
+                            image_data["min_pixels"] = content_item["min_pixels"]
+                        if "max_pixels" in content_item:
+                            image_data["max_pixels"] = content_item["max_pixels"]
+
+                        formatted_msg["content"].append(image_data)
                     else:
                         formatted_msg["content"].append(content_item)
                 formatted_messages.append(formatted_msg)
