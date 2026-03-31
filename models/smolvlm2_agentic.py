@@ -312,7 +312,9 @@ class SmolVLM2AgenticModel():
                 for content in msg.get("content", []):
                     if content.get("type") == "image_url":
                         url = content["image_url"]["url"]
-                        if url.startswith("data:image"):
+                        if isinstance(url, dict):
+                            url = url.get("url", "")
+                        if isinstance(url, str) and url.startswith("data:image"):
                             # Decode base64 image
                             base64_data = url.split(",")[1]
                             image_data = base64.b64decode(base64_data)

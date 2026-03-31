@@ -306,11 +306,30 @@ class Qwen25VLModel():
         Helper method to call the local model inference.
         """
         try:
-            # Prepare inputs
+            # Prepare inputs for Qwen2.5-VL which expects specific keys format
+            formatted_messages = []
+            for msg in messages:
+                new_msg = {"role": msg["role"], "content": []}
+                for content in msg.get("content", []):
+                    if content.get("type") == "image_url":
+                        # Convert image_url format to Qwen2-VL specific format
+                        url_obj = content["image_url"]["url"]
+                        if isinstance(url_obj, dict):
+                            url = url_obj.get("url", "")
+                        else:
+                            url = url_obj
+                        new_msg["content"].append({
+                            "type": "image",
+                            "image": url
+                        })
+                    else:
+                        new_msg["content"].append(content)
+                formatted_messages.append(new_msg)
+
             text = self.processor.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True
+                formatted_messages, tokenize=False, add_generation_prompt=True
             )
-            image_inputs, video_inputs = process_vision_info(messages)
+            image_inputs, video_inputs = process_vision_info(formatted_messages)
 
             inputs = self.processor(
                 text=[text],
