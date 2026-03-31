@@ -288,7 +288,7 @@ class Qwen25VLModel():
         self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             self.model_name,
             torch_dtype=torch.float16,
-            device_map="auto",
+            device_map="cuda:0",
             quantization_config=quantization_config,
         )
         self.processor = AutoProcessor.from_pretrained(self.model_name)
