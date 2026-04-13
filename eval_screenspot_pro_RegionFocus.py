@@ -32,7 +32,7 @@ def parse_args():
     parser.add_argument('--checkpoint_path', type=str, default=None, help="Path to save/load checkpoint for resuming evaluation")
     parser.add_argument('--checkpoint_interval', type=int, default=10, help="Save checkpoint after every N samples")
     parser.add_argument('--debug', action='store_true', help="Save intermediate RegionFocus debug images")
-
+    parser.add_argument('--test_single_image', type=str, default=None, help="Test a specific image file by its name (e.g. screenshot.png)")
 
     args = parser.parse_args()
     return args
@@ -410,6 +410,11 @@ def main(args):
 
                         tasks_to_run.append(task_instance)
         print(f"Num of sample in {task_filename}: {len(task_data)} * {len(inst_styles)} * {len(gt_types)} * {len(languages)} = {len(task_data) * len(inst_styles) * len(gt_types) * len(languages)}")
+
+    if args.test_single_image:
+        tasks_to_run = [t for t in tasks_to_run if t.get("img_filename") == args.test_single_image or t.get("img_filename", "").endswith("/" + args.test_single_image) or t.get("img_filename", "").endswith("\\" + args.test_single_image)]
+        print(f"Filtered tasks down to {len(tasks_to_run)} based on test_single_image flag")
+
     print(f"Total tasks: {len(tasks_to_run)}")
     random.shuffle(tasks_to_run)
 
